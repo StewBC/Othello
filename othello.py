@@ -3,6 +3,7 @@ Othello, using curses, by Stefan Wessels.
 Versions:
   V1.0 - 11 Jan 2017 - Initial Release - Windows only.
   V1.1 - 12 Jan 2017 - Made this also work in Mac and Linux.  Some comments added.
+  V1.2 - 12 Jan 2017 - ESC brings up menu in-game and you can change options & pass
 """
 
 import curses
@@ -16,9 +17,9 @@ except ImportError as e:
     import sys
     import select
 
-INPUT_MOTION    = [curses.KEY_UP, curses.KEY_RIGHT, curses.KEY_DOWN, curses.KEY_LEFT]
+INPUT_MOTION    = [curses.KEY_UP, curses.KEY_DOWN]
 INPUT_SELECT    = [curses.KEY_ENTER, 10, 13]
-INPUT_BACKUP    = 27
+INPUT_BACKUP    = 27 # ESC key
 SCROLL_SPEED    = 0.15
 BLANK           = ' '
 WHITE           = 'O'
@@ -48,7 +49,7 @@ def menu(title, menuItems, menuHeight, maxWidth, scroller):
 
     sy = int(max(0, screenY / 2 - (menuHeight / 2) - 1))
     sx = int(max(0, screenX / 2 - (maxLen / 2) - 1))
-    maxLen = int(min(maxWidth, maxLen))
+    maxLen = int(min(maxWidth-2, maxLen))
 
     scrollIndex = 0
     scrollLength = len(scroller)
@@ -230,8 +231,8 @@ def getHumanPlay(board, colour, best):
     while True:
         stdscr.addstr(y,x,"")
         key = stdscr.getch()
-        if key == 27: # ESC key
-            break
+        if key == INPUT_BACKUP:
+            return key
         elif key == curses.KEY_LEFT:
             if cx > 0:
                 cx -= 1
@@ -255,7 +256,52 @@ def getHumanPlay(board, colour, best):
                     best[0] = cy
                     best[1] = cx
                     best[2] = board[cy][cx].score + advantage[cy][cx]
-                    break
+                    return curses.KEY_ENTER
+
+# choose menu options; out 0 = play, 1 = pass, 2 = end match, 3 = quit
+def getUserChoice(status, inGame):
+    while True:
+        stdscr.clear()
+        menuItems = [" Single Player Game ", " Two Player Game", " Both Players AI", " Quit"];
+        if inGame:
+            menuItems.append(" End Match")
+            menuItems.append(" Pass")
+        option = menu("Main Menu", menuItems, len(menuItems)+1, screenX, 
+            "****** Python Othello V1.2 by Stefan Wessels, Jan. 2017.  Cursor keys to move cursor.  "
+            "Enter to place a piece.  ESC to bring up the menu.  I wrote this game over 2 days as a "
+            "learning exercise - I wanted to learn Python and I wanted to make an Othello game.  Even "
+            "though the AI is marginal, I think the whole thing is a pretty big success! ")
+
+        if option == 0:
+            option = menu(" Choose Your Color ", [" Play as Black", " Play as White", " Back"], 4, screenX, "Black goes first. *** ")
+            if option == 0:
+               status[0] = 1
+               status[1] = 0
+            elif option == 1:
+               status[0] = 0
+               status[1] = 1
+            else:
+                continue
+            
+            return 0
+
+        elif option == 1:
+            status[0] = status[1] = 0
+        elif option == 2:
+            status[0] = status[1] = 1
+        elif option == 4:
+            return 2
+        elif option == 5:
+            return 1
+        else:
+            option = menu("Quit", [" Absolutely ", " Maybe Not"], 3, screenX, "Are you sure? ")
+            if option == 0:
+                return 3
+            else:
+                continue
+
+        return 0
+
 
 # sets up the colours for curses, the background colour and clears the screen
 def initScr(win):
@@ -282,10 +328,10 @@ def init(win):
     advantage = [
         [8,0,3,2,2,3,0,8],
         [0,0,2,0,0,2,0,0],
-        [3,2,4,3,3,4,1,2],
+        [3,2,4,3,3,4,2,3],
         [2,0,3,0,0,3,0,2],
         [2,0,3,0,0,3,0,2],
-        [3,2,4,3,3,4,1,2],
+        [3,2,4,3,3,4,2,3],
         [0,0,2,0,0,2,0,0],
         [8,0,3,2,2,3,0,8],
     ]
@@ -296,37 +342,15 @@ def main(win):
 
     init(win)
 
-    while True:
+    quit = False
+
+    while not quit:
         board = [[Tile() for x in range(8)] for y in range(8)] # [8][8] matrix
         board[3][3].contents = board[4][4].contents = WHITE
         board[3][4].contents = board[4][3].contents = BLACK
-        key, gameOver, colour, score = 0, 0, BLACK, [2, 2]
+        gameOver, key, colour, score, status = 0, 0, BLACK, [2, 2], [0, 0]
 
-        stdscr.clear()
-        option = menu("Main Menu", [" Single Player Game ", " Two Player Game", " Both Players AI", " Quit"], 5, screenX, 
-            "*** Python Othello V1.1 by Stefan Wessels, Jan. 2017.  I wrote this game over 2 days as a "
-            "learning exercise - I wanted to learn Python and I wanted to make an Othello game.  Even "
-            "though the AI is marginal, I think the whole thing is a pretty big success! ")
-
-        if option == 0:
-            option = menu(" Choose Your Color ", [" Play as White", " Play as Black", " Back"], 4, screenX, "Black goes first. *** ")
-            if option == 0:
-               status = [0, 1]
-            elif option == 1:
-               status = [1, 0]
-            else:
-                continue
-        elif option == 1:
-            status = [0, 0]
-        elif option == 2:
-            status = [1, 1]
-        elif option == 3:
-            option = menu("Quit", [" Absolutely ", " Maybe Not"], 3, screenX, "Are you sure? ")
-            if option == 0:
-                break
-            else:
-                continue
-        else:
+        if getUserChoice(status, False):
             break
 
         while gameOver < 2:
@@ -339,7 +363,20 @@ def main(win):
                 if status[0] == status[1] == 1:
                     key = stdscr.getch()
             else:
-                getHumanPlay(board, colour, best)
+                key = getHumanPlay(board, colour, best)
+
+            if key == INPUT_BACKUP:
+                key = getUserChoice(status, True)
+                if key:
+                    if key == 1:
+                        colour = swap(colour)
+                        continue
+                    elif key == 3:
+                        quit = True
+                    break
+                else:
+                    continue
+
             if best[0] != -1:
                 gameOver = 0
                 addPiece(best[0], best[1], board, colour)
@@ -357,9 +394,8 @@ def main(win):
 
             colour = swap(colour)
 
-            if key == 27: # ESC key
-                break
         else:
+            drawScore(score, BLANK, status)
             drawGameOver()
             stdscr.getch()
 
