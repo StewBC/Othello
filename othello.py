@@ -1,6 +1,20 @@
-import msvcrt
+"""
+Othello, using curses, by Stefan Wessels.
+Versions:
+  V1.0 - 11 Jan 2017 - Initial Release - Windows only.
+  V1.1 - 12 Jan 2017 - Made this also work in Mac and Linux.  Some comments added.
+"""
+
 import curses
 import time
+
+windows = False
+try:
+    import msvcrt
+    windows = True
+except ImportError as e:
+    import sys
+    import select
 
 INPUT_MOTION    = [curses.KEY_UP, curses.KEY_RIGHT, curses.KEY_DOWN, curses.KEY_LEFT]
 INPUT_SELECT    = [curses.KEY_ENTER, 10, 13]
@@ -21,9 +35,10 @@ CR_YELLOW_BLUE  = 5
 CR_GREEN_BLUE   = 6
 CR_WHITE_BLUE   = 7
 CR_WHITE_GREEN  = 8
-CR_BLACK_WHITE   = 10
+CR_BLACK_WHITE  = 10
 
-def menu(title, menuItems, maxHeight, maxWidth, scroller):
+# menu system that draws a menu in the middle of the screen
+def menu(title, menuItems, menuHeight, maxWidth, scroller):
     maxLen = len(title)
     numMenuItems = len(menuItems)
     for i in range(numMenuItems):
@@ -31,7 +46,7 @@ def menu(title, menuItems, maxHeight, maxWidth, scroller):
         if length > maxLen:
             maxLen = length
 
-    sy = int(max(0, screenY / 2 - (maxHeight / 2) - 1))
+    sy = int(max(0, screenY / 2 - (menuHeight / 2) - 1))
     sx = int(max(0, screenX / 2 - (maxLen / 2) - 1))
     maxLen = int(min(maxWidth, maxLen))
 
@@ -46,7 +61,7 @@ def menu(title, menuItems, maxHeight, maxWidth, scroller):
     for i in range(numMenuItems):
         stdscr.addstr(sy+i, sx, ' {:{width}} '.format(menuItems[i][:maxLen], width=maxLen), curses.color_pair(CR_WHITE_BLUE))
     
-    for i in range(i+1, maxHeight):
+    for i in range(i+1, menuHeight):
         stdscr.addstr(sy+i, sx, " " * (maxLen+2), curses.color_pair(CR_WHITE_BLUE))
     
     i = 0
@@ -54,7 +69,14 @@ def menu(title, menuItems, maxHeight, maxWidth, scroller):
     start = time.time()
     while True:
         stdscr.addstr(sy+i,sx, '>{:{width}}<'.format(menuItems[i][:maxLen], width=maxLen), curses.color_pair(CR_WHITE_GREEN))
-        if msvcrt.kbhit():
+        keyPressed = 0
+        if windows:
+            keyPressed = msvcrt.kbhit()
+        else:
+            dr,dw,de = select.select([sys.stdin], [], [], 0)
+            if not dr == []:
+                keyPressed = 1
+        if keyPressed:
             key = stdscr.getch()
             if key in INPUT_MOTION:
                 stdscr.addstr(sy+i,sx, ' {:{width}} '.format(menuItems[i][:maxLen], width=maxLen), curses.color_pair(CR_WHITE_BLUE))
@@ -67,11 +89,11 @@ def menu(title, menuItems, maxHeight, maxWidth, scroller):
                     if numMenuItems == i:
                         i = 0
         
-        stdscr.addstr(sy+maxHeight, sx, " " + scroller[scrollIndex:scrollIndex+maxLen], curses.color_pair(CR_GREEN_BLUE))
+        stdscr.addstr(sy+menuHeight, sx, " " + scroller[scrollIndex:scrollIndex+maxLen], curses.color_pair(CR_GREEN_BLUE))
         remain = scrollLength - scrollIndex
         while remain < maxLen:
             string = scroller[:maxLen-remain]
-            stdscr.addstr(sy+maxHeight,sx+1+remain, string, curses.color_pair(CR_GREEN_BLUE))
+            stdscr.addstr(sy+menuHeight,sx+1+remain, string, curses.color_pair(CR_GREEN_BLUE))
             remain += len(string)
         stdscr.addstr(" ", curses.color_pair(CR_GREEN_BLUE))
         stdscr.refresh()
@@ -91,19 +113,18 @@ def menu(title, menuItems, maxHeight, maxWidth, scroller):
     
     return i
 
+# the contents of each tile on the board
 class Tile:
     contents = BLANK
     score = 0
-    def __lt__(self, other):
-        return self.score < other.score
 
-
+# simply turn black->white or white->black
 def swap(colourIn):
     if colourIn == BLACK:
         return WHITE
     return BLACK
 
-
+# walks a row/col/diag and counts piece that could be captured
 def traceTiles(y, x, dy, dx, board, colour):
     score = 1
     while y >= 0 and y < 8 and x >=0 and x < 8 and board[y][x].contents == colour:
@@ -114,7 +135,7 @@ def traceTiles(y, x, dy, dx, board, colour):
         return 0
     return score 
 
-
+# trace all neighbouts of a tile
 def scoreTile(y, x, board, colour):
     other = swap(colour)
     for y1 in range(y-1, y+2):
@@ -125,7 +146,7 @@ def scoreTile(y, x, board, colour):
                 dy, dx = y1-y, x1-x
                 board[y][x].score += traceTiles(y1+dy, x1+dx, dy, dx, board, other)
 
-
+# check all tiles to see which move captures most tiles/is most desirable
 def scoreBoard(board, colour, best):
     for y in range(8):
         for x in range(8):
@@ -137,7 +158,7 @@ def scoreBoard(board, colour, best):
                     best[1] = x
                     best[2] = board[y][x].score + advantage[y][x]
 
-
+# turns captured tiles (white->black or black->white)
 def setTraceTiles(y, x, dy, dx, board, colour):
     score, ox, oy, other = 0, x, y, swap(colour)
     while y >= 0 and y < 8 and x >=0 and x < 8 and board[y][x].contents == other:
@@ -152,7 +173,7 @@ def setTraceTiles(y, x, dy, dx, board, colour):
         y += dy
         x += dx
 
-
+# places a colour and sets neighbors/traces if captured
 def addPiece(y, x, board, colour):
     board[y][x].contents = colour
     other = swap(colour)
@@ -164,7 +185,7 @@ def addPiece(y, x, board, colour):
                 dy, dx = y1-y, x1-x
                 setTraceTiles(y1, x1, dy, dx, board, colour)
 
-
+# show score and who's turn and if it's human or AI
 def drawScore(score, colour, status):
     y, x = score_y, int(screenX / 2)
     white = "White" if status[0] == 0 else "White (AI)"
@@ -175,6 +196,7 @@ def drawScore(score, colour, status):
     stdscr.addstr(y, x, bstring, curses.color_pair(CR_BLUE_CYAN if colour == WHITE else CR_BLACK_WHITE))
     stdscr.addstr(y, x + len(bstring) + 1, wstring, curses.color_pair(CR_BLUE_CYAN if colour == BLACK else CR_WHITE_BLUE))
 
+# drwas the 8x8 board and pieces
 def drawBoard(board):
     y, x = board_y, int(screenX / 2) - 8 # 8 is .5 * board_width
     for i in range(8):
@@ -194,20 +216,21 @@ def drawBoard(board):
     stdscr.addstr(y,x,'+-'*8+'+', curses.color_pair(CR_BLUE_CYAN))
     stdscr.refresh()
 
-
+# just shows Game Over in red letters
 def drawGameOver():
     string = "Game Over"
-    y, x = gameover_y, int(screenX / 2) - int(len(string) / 2) # 8 is .5 * board_width
+    y, x = gameover_y, int(screenX / 2) - int(len(string) / 2)
     stdscr.addstr(y, x, string, curses.color_pair(CR_RED_CYAN))
 
+# move the cursor and on ENTER place a piece if it's a valid move
 def getHumanPlay(board, colour, best):
-    y, x = board_y+1, int(screenX / 2) - 8 + 1 # 8 is .5 * board_width
+    y, x = board_y+1, int(screenX / 2) - 8 + 1
     cx = cy = 0
     best[0] = -1
     while True:
-        stdscr.addstr(y,x,"") # setsyx didn't work
+        stdscr.addstr(y,x,"")
         key = stdscr.getch()
-        if key == 27: # ESC
+        if key == 27: # ESC key
             break
         elif key == curses.KEY_LEFT:
             if cx > 0:
@@ -234,7 +257,7 @@ def getHumanPlay(board, colour, best):
                     best[2] = board[cy][cx].score + advantage[cy][cx]
                     break
 
-
+# sets up the colours for curses, the background colour and clears the screen
 def initScr(win):
     global stdscr, screenY, screenX
     stdscr = win
@@ -253,12 +276,12 @@ def initScr(win):
     stdscr.clear()
     screenY, screenX = stdscr.getmaxyx()
 
-
+# fills in the "advantage" grid and calls initScr
 def init(win):
     global advantage
     advantage = [
         [8,0,3,2,2,3,0,8],
-        [0,0,3,0,0,2,0,0],
+        [0,0,2,0,0,2,0,0],
         [3,2,4,3,3,4,1,2],
         [2,0,3,0,0,3,0,2],
         [2,0,3,0,0,3,0,2],
@@ -268,10 +291,10 @@ def init(win):
     ]
     initScr(win)
 
+# called from the curses.wrapper - main game loop
 def main(win):
 
     init(win)
-    option = 0
 
     while True:
         board = [[Tile() for x in range(8)] for y in range(8)] # [8][8] matrix
@@ -281,7 +304,7 @@ def main(win):
 
         stdscr.clear()
         option = menu("Main Menu", [" Single Player Game ", " Two Player Game", " Both Players AI", " Quit"], 5, screenX, 
-            "*** Python Othello V1.0 by Stefan Wessels, Jan. 2017.  I wrote this game over 2 days as a "
+            "*** Python Othello V1.1 by Stefan Wessels, Jan. 2017.  I wrote this game over 2 days as a "
             "learning exercise - I wanted to learn Python and I wanted to make an Othello game.  Even "
             "though the AI is marginal, I think the whole thing is a pretty big success! ")
 
@@ -340,4 +363,5 @@ def main(win):
             drawGameOver()
             stdscr.getch()
 
+# inits the terminal, calls the game and cleans up the terminal again
 curses.wrapper(main)
