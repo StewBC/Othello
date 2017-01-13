@@ -1,18 +1,19 @@
 ASCII/Curses Othello in Python for Windows, Mac and Linux
 
-Yesterday (10 Jan 2017) I decided to learn Python.  I wanted a project to use
-as a base, so I chose Othello.
+I decided to learn Python.  I wanted a project to use as a base, so I chose
+Othello.
 
-The AI in this game is very simple, and thus not very good.  It looks for the
+The AI in this game is very simple, and thus not great.  It looks for the
 most tiles it can take this turn, and it uses a structure that "backs" the 
 board to make playing certain tiles have an advantage.  An "advantage" just
 means the "number of pieces captured" by playing on that square is boosted
 by some amount.  Perhaps later I will make a better evaluator.
 
-What have I learnt?  I like Python!  I almost gave up after struggling with
-tabs and spaces but after I set Sublime Text 3 up to treat tabs as 4 spaces
-when writing python and making it so F7 runs the code in a cmd window, it 
-went well.
+V1.0 - 11 Jan 2017 - Initial Release - Windows only.
+V1.1 - 12 Jan 2017 - Mac and Linux support.
+V1.2 - 12 Jan 2017 - ESC brings up in-game menu.
+V1.3 - 13 Jan 2017 - Added help and Undo/Redo. Made board look nicer.
 
-What did I use to learn Python?  Google and mostly Stack Overflow but also 
-docs.python.org.
+If anyone reads the code and has comments, please let me know!  As I did
+this to learn, I would love any feedback that helps me improve.
+swessels@email.com

@@ -1,13 +1,15 @@
 """
 Othello, using curses, by Stefan Wessels.
 Versions:
-  V1.0 - 11 Jan 2017 - Initial Release - Windows only.
-  V1.1 - 12 Jan 2017 - Made this also work in Mac and Linux.  Some comments added.
-  V1.2 - 12 Jan 2017 - ESC brings up menu in-game and you can change options & pass
+    V1.0 - 11 Jan 2017 - Initial Release - Windows only.
+    V1.1 - 12 Jan 2017 - Mac and Linux support.
+    V1.2 - 12 Jan 2017 - ESC brings up in-game menu.
+    V1.3 - 13 Jan 2017 - Added help and Undo/Redo. Made board look nicer.
 """
 
 import curses
 import time
+import copy
 
 windows = False
 try:
@@ -20,13 +22,15 @@ except ImportError as e:
 INPUT_MOTION    = [curses.KEY_UP, curses.KEY_DOWN]
 INPUT_SELECT    = [curses.KEY_ENTER, 10, 13]
 INPUT_BACKUP    = 27 # ESC key
+INPUT_UNDO      = 117
+INPUT_REDO      = 114
+INPUT_COMMAND   = [INPUT_BACKUP, INPUT_UNDO, INPUT_REDO]
 SCROLL_SPEED    = 0.15
 BLANK           = ' '
 WHITE           = 'O'
 BLACK           = 'X'
-score_y         = 1
-board_y         = score_y + 2
-gameover_y      = board_y + 2 + 16
+CELL_W          = 3
+CELL_H          = 1
 
 CR_BLUE_CYAN    = 1
 CR_BLACK_CYAN   = 2
@@ -114,6 +118,46 @@ def menu(title, menuItems, menuHeight, maxWidth, scroller):
     
     return i
 
+# backs up/restores the board, turn and score
+class UndoRedo:
+    def __init__(self):
+        self.boardStack = []
+        self.attribStack = []
+        self.curr = -1
+        self.top = -1
+
+    def save(self, board, colour, score):
+        while self.curr != self.top:
+            self.boardStack.pop()
+            self.attribStack.pop()
+            self.top -= 1;
+        self.boardStack.append(copy.deepcopy(board))
+        self.attribStack.append((colour, copy.copy(score)))
+        self.top += 1
+        self.curr = self.top
+
+    def setter(self, board, acolour, score):
+        for i in range(len(self.boardStack[self.curr])):
+            board[i] = copy.deepcopy(self.boardStack[self.curr][i])
+        acolour[0] = self.attribStack[self.curr][0]
+        score[0] = self.attribStack[self.curr][1][0]
+        score[1] = self.attribStack[self.curr][1][1]
+        return 1
+
+    def undo(self, board, acolour, score):
+        if self.curr > 0:
+            self.curr -= 1
+            return self.setter(board, acolour, score)
+        else:
+            return 0
+
+    def redo(self, board, acolour, score):
+        if self.curr < self.top:
+            self.curr += 1
+            return self.setter(board, acolour, score)
+        else:
+            return 0
+
 # the contents of each tile on the board
 class Tile:
     contents = BLANK
@@ -188,7 +232,8 @@ def addPiece(y, x, board, colour):
 
 # show score and who's turn and if it's human or AI
 def drawScore(score, colour, status):
-    y, x = score_y, int(screenX / 2)
+    y, x = int((screenY-(CELL_H*8))/2)-2, int(screenX / 2)
+    y, x = max(0,y), max(0, x)
     white = "White" if status[0] == 0 else "White (AI)"
     black = "Black" if status[1] == 0 else "Black (AI)"
     bstring = "%s: %3d" % (black, score[1])
@@ -199,56 +244,92 @@ def drawScore(score, colour, status):
 
 # drwas the 8x8 board and pieces
 def drawBoard(board):
-    y, x = board_y, int(screenX / 2) - 8 # 8 is .5 * board_width
+    y, x = int((screenY-(CELL_H*8))/2), int((screenX / 2) - (CELL_W*8/2))
+    y, x = max(0,y), max(0, x)
     for i in range(8):
-        stdscr.addstr(y,x,'+-'*8+'+', curses.color_pair(CR_BLUE_CYAN))
-        y += 1
         for j in range(8):
-            stdscr.addstr(y,x+j*2,'|', curses.color_pair(CR_BLUE_CYAN))
+            stdscr.addstr(y+i*CELL_H,x+j*CELL_W,'[', curses.color_pair(CR_BLUE_CYAN))
             c = board[i][j].contents
             col = curses.color_pair(CR_WHITE_CYAN)
             if c != BLANK:
                  if c == BLACK:
                     col = curses.color_pair(CR_BLACK_CYAN)
                     c = WHITE
-            stdscr.addstr(y,x+j*2+1,c, col )
-        stdscr.addstr('|', curses.color_pair(CR_BLUE_CYAN))
-        y += 1
-    stdscr.addstr(y,x,'+-'*8+'+', curses.color_pair(CR_BLUE_CYAN))
+            stdscr.addstr(y+i*CELL_H,x+j*CELL_W+1,c, col )
+            stdscr.addstr(']', curses.color_pair(CR_BLUE_CYAN))
     stdscr.refresh()
+
+# shows a non-interactive help screen
+def drawHelp():
+    helpText = [
+        "",
+        "                        Othello",
+        "",
+        " The goal in Othello is to trap pieces of the opposing ",
+        " color between 2 of your pieces.  The \"line\" can be",
+        " vertical, horizontal or diagonal.  Black moves first.",
+        " The winner has the most pieces of their color on the",
+        " board when there are no more possible moves.",
+        "",
+        " Keys:",
+        "   Cursor keys - Move cursor around the board",
+        "   Enter key   - Put down a piece in your color",
+        "   ESC key     - Bring up the options menu",
+        "   u           - Undo the last move",
+        "   r           - Redo the next move (after undo)",
+        ""
+    ]
+
+    stdscr.clear()
+    length = 0
+    for line in helpText:
+        llen = len(line)
+        if llen > length:
+            length = llen
+
+    y = max(0, int((screenY - len(helpText)) / 2))
+    x = max(0, int((screenX - length) / 2))
+    for line in helpText:
+        stdscr.addstr(y, x, "{:{width}}".format(line, width=length), curses.color_pair(CR_WHITE_BLUE))
+        y += 1
+    stdscr.refresh()
+    stdscr.getch()
+    stdscr.clear()
 
 # just shows Game Over in red letters
 def drawGameOver():
     string = "Game Over"
-    y, x = gameover_y, int(screenX / 2) - int(len(string) / 2)
+    y, x = int((screenY-(CELL_H*8))/2)+CELL_H*8+1, int(screenX / 2) - int(len(string) / 2)
     stdscr.addstr(y, x, string, curses.color_pair(CR_RED_CYAN))
 
 # move the cursor and on ENTER place a piece if it's a valid move
 def getHumanPlay(board, colour, best):
-    y, x = board_y+1, int(screenX / 2) - 8 + 1
+    y, x = int((screenY-(CELL_H*8))/2), int((screenX / 2) - (CELL_W*8/2) + CELL_W / 2)
+    y, x = max(0,y), max(0, x)
     cx = cy = 0
     best[0] = -1
     while True:
         stdscr.addstr(y,x,"")
         key = stdscr.getch()
-        if key == INPUT_BACKUP:
+        stdscr.refresh()
+        if key in INPUT_COMMAND:
             return key
         elif key == curses.KEY_LEFT:
             if cx > 0:
                 cx -= 1
-                x -= 2
+                x -= CELL_W
         elif key == curses.KEY_RIGHT:
             if cx < 7:
                 cx += 1
-                x += 2
+                x += CELL_W
         elif key == curses.KEY_UP:
             if cy > 0:
                 cy -= 1
-                y -= 2
+                y -= CELL_H
         elif key == curses.KEY_DOWN:
             if cy < 7:
                 cy += 1
-                y += 2
+                y += CELL_H
         elif key in INPUT_SELECT and board[cy][cx].contents == BLANK:
                 board[cy][cx].score = 0
                 scoreTile(cy, cx, board, colour)
@@ -262,15 +343,14 @@ def getHumanPlay(board, colour, best):
 def getUserChoice(status, inGame):
     while True:
         stdscr.clear()
-        menuItems = [" Single Player Game ", " Two Player Game", " Both Players AI", " Quit"];
+        menuItems = [" Single Player Game ", " Two Player Game", " Both Players AI", " Help", " Quit"];
         if inGame:
             menuItems.append(" End Match")
             menuItems.append(" Pass")
         option = menu("Main Menu", menuItems, len(menuItems)+1, screenX, 
-            "****** Python Othello V1.2 by Stefan Wessels, Jan. 2017.  Cursor keys to move cursor.  "
-            "Enter to place a piece.  ESC to bring up the menu.  I wrote this game over 2 days as a "
-            "learning exercise - I wanted to learn Python and I wanted to make an Othello game.  Even "
-            "though the AI is marginal, I think the whole thing is a pretty big success! ")
+            "***** Python Othello V1.3 by Stefan Wessels, Jan. 2017.  ***** I wrote this game "
+            "as a learning exercise - I wanted to learn Python and I used Othello as the way to "
+            "learn.  Even though the AI is marginal, I think it is a success. ")
 
         if option == 0:
             option = menu(" Choose Your Color ", [" Play as Black", " Play as White", " Back"], 4, screenX, "Black goes first. *** ")
@@ -289,9 +369,11 @@ def getUserChoice(status, inGame):
             status[0] = status[1] = 0
         elif option == 2:
             status[0] = status[1] = 1
-        elif option == 4:
-            return 2
+        elif option == 3:
+            drawHelp()
         elif option == 5:
+            return 2
+        elif option == 6:
             return 1
         else:
             option = menu("Quit", [" Absolutely ", " Maybe Not"], 3, screenX, "Are you sure? ")
@@ -301,7 +383,6 @@ def getUserChoice(status, inGame):
                 continue
 
         return 0
-
 
 # sets up the colours for curses, the background colour and clears the screen
 def initScr(win):
@@ -324,7 +405,7 @@ def initScr(win):
 
 # fills in the "advantage" grid and calls initScr
 def init(win):
-    global advantage
+    global advantage, ur
     advantage = [
         [8,0,3,2,2,3,0,8],
         [0,0,2,0,0,2,0,0],
@@ -348,7 +429,10 @@ def main(win):
         board = [[Tile() for x in range(8)] for y in range(8)] # [8][8] matrix
         board[3][3].contents = board[4][4].contents = WHITE
         board[3][4].contents = board[4][3].contents = BLACK
-        gameOver, key, colour, score, status = 0, 0, BLACK, [2, 2], [0, 0]
+        gameOver, key, colour, score, status, urc = 0, 0, BLACK, [2, 2], [0, 0], [BLANK]
+
+        ur = UndoRedo()
+        ur.save(board, colour, score)
 
         if getUserChoice(status, False):
             break
@@ -376,6 +460,15 @@ def main(win):
                     break
                 else:
                     continue
+            elif key == INPUT_UNDO:
+                # both undo & redo runs 2x, as it should, if one player is AI
+                ur.undo(board, urc, score)
+                colour = urc[0]
+                continue
+            elif key == INPUT_REDO:
+                ur.redo(board, urc, score)
+                colour = urc[0]
+                continue
 
             if best[0] != -1:
                 gameOver = 0
@@ -386,6 +479,9 @@ def main(win):
                 else:
                     score[1] += 1 + best[2] - advantage[best[0]][best[1]]
                     score[0] -= best[2] - advantage[best[0]][best[1]]
+
+                ur.save(board, swap(colour), score)
+
                 if score[0] == 0 or score[1] == 0 or score[0] + score[1] == 64:
                     drawBoard(board)
                     gameOver = 2
