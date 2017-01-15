@@ -5,6 +5,7 @@ Versions:
     V1.1 - 12 Jan 2017 - Mac and Linux support.
     V1.2 - 12 Jan 2017 - ESC brings up in-game menu.
     V1.3 - 13 Jan 2017 - Added help and Undo/Redo. Made board look nicer.
+    V1.4 - 14 Jan 2017 - Added recursive AI and settings for this AI.
 """
 
 import curses
@@ -51,14 +52,14 @@ def menu(title, menuItems, menuHeight, maxWidth, scroller):
         if length > maxLen:
             maxLen = length
 
-    sy = int(max(0, screenY / 2 - (menuHeight / 2) - 1))
-    sx = int(max(0, screenX / 2 - (maxLen / 2) - 1))
+    sy = int(max(0, screenY/2-(menuHeight/2)-1))
+    sx = int(max(0, screenX/2-(maxLen/2)-1))
     maxLen = int(min(maxWidth-2, maxLen))
 
     scrollIndex = 0
     scrollLength = len(scroller)
     
-    stdscr.addstr(sy,sx, ' {:^{width}} '.format(title[:maxLen], width=maxLen), curses.color_pair(CR_YELLOW_BLUE))
+    stdscr.addstr(sy, sx, ' {:^{width}} '.format(title[:maxLen], width=maxLen), curses.color_pair(CR_YELLOW_BLUE))
     sy += 1
     stdscr.addstr(sy, sx, " " * (maxLen+2), curses.color_pair(CR_YELLOW_BLUE))
     sy += 1
@@ -73,18 +74,18 @@ def menu(title, menuItems, menuHeight, maxWidth, scroller):
     key = 0
     start = time.time()
     while True:
-        stdscr.addstr(sy+i,sx, '>{:{width}}<'.format(menuItems[i][:maxLen], width=maxLen), curses.color_pair(CR_WHITE_GREEN))
+        stdscr.addstr(sy+i, sx, '>{:{width}}<'.format(menuItems[i][:maxLen], width=maxLen), curses.color_pair(CR_WHITE_GREEN))
         keyPressed = 0
         if windows:
             keyPressed = msvcrt.kbhit()
         else:
-            dr,dw,de = select.select([sys.stdin], [], [], 0)
+            dr, dw, de = select.select([sys.stdin], [], [], 0)
             if not dr == []:
                 keyPressed = 1
         if keyPressed:
             key = stdscr.getch()
             if key in INPUT_MOTION:
-                stdscr.addstr(sy+i,sx, ' {:{width}} '.format(menuItems[i][:maxLen], width=maxLen), curses.color_pair(CR_WHITE_BLUE))
+                stdscr.addstr(sy+i, sx, ' {:{width}} '.format(menuItems[i][:maxLen], width=maxLen), curses.color_pair(CR_WHITE_BLUE))
                 if key == curses.KEY_UP:
                     i -= 1
                     if i < 0:
@@ -95,15 +96,15 @@ def menu(title, menuItems, menuHeight, maxWidth, scroller):
                         i = 0
         
         stdscr.addstr(sy+menuHeight, sx, " " + scroller[scrollIndex:scrollIndex+maxLen], curses.color_pair(CR_GREEN_BLUE))
-        remain = scrollLength - scrollIndex
+        remain = scrollLength-scrollIndex
         while remain < maxLen:
             string = scroller[:maxLen-remain]
-            stdscr.addstr(sy+menuHeight,sx+1+remain, string, curses.color_pair(CR_GREEN_BLUE))
+            stdscr.addstr(sy+menuHeight, sx+1+remain, string, curses.color_pair(CR_GREEN_BLUE))
             remain += len(string)
         stdscr.addstr(" ", curses.color_pair(CR_GREEN_BLUE))
         stdscr.refresh()
 
-        if time.time() - start > SCROLL_SPEED:
+        if time.time()-start > SCROLL_SPEED:
             scrollIndex += 1
             start = time.time()
             if scrollIndex == scrollLength:
@@ -142,26 +143,34 @@ class UndoRedo:
         acolour[0] = self.attribStack[self.curr][0]
         score[0] = self.attribStack[self.curr][1][0]
         score[1] = self.attribStack[self.curr][1][1]
-        return 1
 
     def undo(self, board, acolour, score):
-        if self.curr > 0:
-            self.curr -= 1
-            return self.setter(board, acolour, score)
-        else:
-            return 0
+        if self.curr != -1:
+            if self.curr > 0:
+                self.curr -= 1
+            self.setter(board, acolour, score)
 
     def redo(self, board, acolour, score):
         if self.curr < self.top:
             self.curr += 1
-            return self.setter(board, acolour, score)
-        else:
-            return 0
+            self.setter(board, acolour, score)
 
 # the contents of each tile on the board
 class Tile:
     contents = BLANK
     score = 0
+
+class Move:
+    y = x = -1
+    score = 0
+    def __init__(self, y=-1, x=-1, s=0):
+        self.y = y
+        self.x = x
+        self.score = s
+    def __lt__(self, rhs):
+        return self.score < rhs.score
+    def __repr__(self):
+        return "({},{},{})".format(self.y, self.x, self.score)
 
 # simply turn black->white or white->black
 def swap(colourIn):
@@ -191,17 +200,55 @@ def scoreTile(y, x, board, colour):
                 dy, dx = y1-y, x1-x
                 board[y][x].score += traceTiles(y1+dy, x1+dx, dy, dx, board, other)
 
-# check all tiles to see which move captures most tiles/is most desirable
-def scoreBoard(board, colour, best):
+# recursive scoring function and wide scoring test
+def scoreBoard(board, colour, move, level):
+    moveList = []
+    urc = [BLANK]
+    score = [0, 0]
+    aur = UndoRedo()
+    aur.save(board, colour, score)
+
     for y in range(8):
         for x in range(8):
             board[y][x].score = 0
             if board[y][x].contents == BLANK:
                 scoreTile(y, x, board, colour)
-                if board[y][x].score and board[y][x].score + advantage[y][x] > best[2]:
-                    best[0] = y
-                    best[1] = x
-                    best[2] = board[y][x].score + advantage[y][x]
+                if board[y][x].score:
+                    moveList.append(Move(y, x, board[y][x].score+advantage[y][x]))
+
+    if moveList:
+        moveList.sort()
+        best = Move()
+        tiles = 0
+        initBest = False
+        length = len(moveList)
+        stdscr.refresh()
+        length = int(length*(aiBreadth/5))+1
+        moveList = moveList[-length:]
+        if level+1 > aiDepth:
+            move.__dict__ = moveList[-1].__dict__.copy()
+            tiles = move.score - advantage[move.y][move.x]
+        else:
+            while moveList:
+                amove = moveList.pop()
+                cy, cx = stdscr.getyx()
+                addPiece(amove.y, amove.x, board, colour)
+                colour = swap(colour)
+                omove = Move()
+                scoreBoard(board, colour, omove, level+1)
+                odd = (level % 2 != 0)
+                if (not odd and amove.score - omove.score > best.score) or (odd and amove.score - omove.score < best.score) or not initBest:
+                    best = copy.copy(amove)
+                    tiles = best.score - advantage[best.y][best.x]
+                    best.score -= omove.score
+                    initBest = True
+                aur.undo(board, urc, score) # reset
+                colour = swap(colour)
+            move.__dict__ = best.__dict__.copy()
+        if level == 0:
+            move.score = tiles
+    else:
+        move.y = -1
 
 # turns captured tiles (white->black or black->white)
 def setTraceTiles(y, x, dy, dx, board, colour):
@@ -232,8 +279,8 @@ def addPiece(y, x, board, colour):
 
 # show score and who's turn and if it's human or AI
 def drawScore(score, colour, status):
-    y, x = int((screenY-(CELL_H*8))/2)-2, int(screenX / 2)
-    y, x = max(0,y), max(0, x)
+    y, x = int((screenY-(CELL_H*8))/2)-2, int(screenX/2)
+    y, x = max(0, y), max(0, x)
     white = "White" if status[0] == 0 else "White (AI)"
     black = "Black" if status[1] == 0 else "Black (AI)"
     bstring = "%s: %3d" % (black, score[1])
@@ -242,26 +289,48 @@ def drawScore(score, colour, status):
     stdscr.addstr(y, x, bstring, curses.color_pair(CR_BLUE_CYAN if colour == WHITE else CR_BLACK_WHITE))
     stdscr.addstr(y, x + len(bstring) + 1, wstring, curses.color_pair(CR_BLUE_CYAN if colour == BLACK else CR_WHITE_BLUE))
 
-# drwas the 8x8 board and pieces
+# draws the 8x8 board and pieces
 def drawBoard(board):
-    y, x = int((screenY-(CELL_H*8))/2), int((screenX / 2) - (CELL_W*8/2))
-    y, x = max(0,y), max(0, x)
+    y, x = int((screenY-(CELL_H*8))/2), int((screenX/2)-(CELL_W*8/2))
+    y, x = max(0, y), max(0, x)
     for i in range(8):
         for j in range(8):
-            stdscr.addstr(y+i*CELL_H,x+j*CELL_W,'[', curses.color_pair(CR_BLUE_CYAN))
+            stdscr.addstr(y+i*CELL_H, x+j*CELL_W, '[', curses.color_pair(CR_BLUE_CYAN))
             c = board[i][j].contents
+            if c != BLANK and c != WHITE and c != BLACK:
+                stdscr.addstr(1,0,"c is messed up.  It's {} at ({},{})".format(c,i,j))
+                stdscr.refresh()
+                stdscr.getch()
             col = curses.color_pair(CR_WHITE_CYAN)
             if c != BLANK:
                  if c == BLACK:
                     col = curses.color_pair(CR_BLACK_CYAN)
                     c = WHITE
-            stdscr.addstr(y+i*CELL_H,x+j*CELL_W+1,c, col )
+            stdscr.addstr(y+i*CELL_H, x+j*CELL_W+1, c, col)
             stdscr.addstr(']', curses.color_pair(CR_BLUE_CYAN))
     stdscr.refresh()
 
-# shows a non-interactive help screen
+# shows a non-interactive screen
+def showMessage(message):
+    stdscr.clear()
+    length = 0
+    for line in message:
+        llen = len(line)
+        if llen > length:
+            length = llen
+
+    y = max(0, int((screenY-len(message)) / 2))
+    x = max(0, int((screenX-length) / 2))
+    for line in message:
+        stdscr.addstr(y, x, "{:{width}}".format(line, width=length), curses.color_pair(CR_WHITE_BLUE))
+        y += 1
+    stdscr.refresh()
+    stdscr.getch()
+    stdscr.clear()
+
+# show the help screens
 def drawHelp():
-    helpText = [
+    helpText1 = [
         "",
         "                        Othello",
         "",
@@ -270,6 +339,7 @@ def drawHelp():
         " vertical, horizontal or diagonal.  Black moves first.",
         " The winner has the most pieces of their color on the",
         " board when there are no more possible moves.",
+        " If there are no valid moves, use Pass in the menu.",
         "",
         " Keys:",
         "   Cursor keys - Move cursor around the board",
@@ -277,39 +347,48 @@ def drawHelp():
         "   ESC key     - Bring up the options menu",
         "   u           - Undo the last move",
         "   r           - Redo the next move (after undo)",
+        "",
+        "                                Press a key - Page 1/2",
         ""
     ]
-
-    stdscr.clear()
-    length = 0
-    for line in helpText:
-        llen = len(line)
-        if llen > length:
-            length = llen
-
-    y = max(0, int((screenY - len(helpText)) / 2))
-    x = max(0, int((screenX - length) / 2))
-    for line in helpText:
-        stdscr.addstr(y, x, "{:{width}}".format(line, width=length), curses.color_pair(CR_WHITE_BLUE))
-        y += 1
-    stdscr.refresh()
-    stdscr.getch()
-    stdscr.clear()
+    helpText2 = [
+        "",
+        "                        Othello",
+        "",
+        " In the settings menu are 2 AI options.  They do the  ",
+        " following:",
+        "",
+        " Depth   - 0 through 8.  Controls how many levels deep ",
+        "   the AI will think.  A depth of 0 is the AIs next",
+        "   move.  1 is the opponent's counter move, 2 is the",
+        "   AI counter to the counter, etc.  At level 8 and",
+        "   breadth 5 the game is very slow on my PC.",
+        " Breadth - 0 through 5.  Controls how many moved per",
+        "   level the AI will consider.  0 is only the move",
+        "   that yields the most pieces.  1 is 1/5th of all",
+        "   possible, moves, 2 is 2/5ths, etc. 5 is all",
+        "   possible moves for all levels up to Depth.",
+        "",
+        "                                Press a key - Page 2/2",
+        ""
+    ]
+    showMessage(helpText1)
+    showMessage(helpText2)
 
 # just shows Game Over in red letters
 def drawGameOver():
     string = "Game Over"
-    y, x = int((screenY-(CELL_H*8))/2)+CELL_H*8+1, int(screenX / 2) - int(len(string) / 2)
+    y, x = int((screenY-(CELL_H*8))/2)+CELL_H*8+1, int(screenX/2)-int(len(string) / 2)
     stdscr.addstr(y, x, string, curses.color_pair(CR_RED_CYAN))
 
 # move the cursor and on ENTER place a piece if it's a valid move
-def getHumanPlay(board, colour, best):
-    y, x = int((screenY-(CELL_H*8))/2), int((screenX / 2) - (CELL_W*8/2) + CELL_W / 2)
-    y, x = max(0,y), max(0, x)
+def getHumanPlay(board, colour, move):
+    y, x = int((screenY-(CELL_H*8))/2), int((screenX/2)-(CELL_W*8/2) + CELL_W / 2)
+    y, x = max(0, y), max(0, x)
     cx = cy = 0
-    best[0] = -1
+    move.y = -1
     while True:
-        stdscr.addstr(y,x,"")
+        stdscr.addstr(y, x, "")
         key = stdscr.getch()
         stdscr.refresh()
         if key in INPUT_COMMAND:
@@ -334,16 +413,16 @@ def getHumanPlay(board, colour, best):
                 board[cy][cx].score = 0
                 scoreTile(cy, cx, board, colour)
                 if board[cy][cx].score > 0:
-                    best[0] = cy
-                    best[1] = cx
-                    best[2] = board[cy][cx].score + advantage[cy][cx]
+                    move.y = cy
+                    move.x = cx
+                    move.score = board[cy][cx].score#+advantage[cy][cx]
                     return curses.KEY_ENTER
 
 # choose menu options; out 0 = play, 1 = pass, 2 = end match, 3 = quit
 def getUserChoice(status, inGame):
     while True:
         stdscr.clear()
-        menuItems = [" Single Player Game ", " Two Player Game", " Both Players AI", " Help", " Quit"];
+        menuItems = [" Single Player Game ", " Two Player Game", " Both Players AI", " AI Settings", " Help", " Quit"];
         if inGame:
             menuItems.append(" End Match")
             menuItems.append(" Pass")
@@ -362,18 +441,38 @@ def getUserChoice(status, inGame):
                status[1] = 1
             else:
                 continue
-            
             return 0
 
         elif option == 1:
             status[0] = status[1] = 0
+            return 0
         elif option == 2:
             status[0] = status[1] = 1
+            return 0
         elif option == 3:
+            global aiBreadth, aiDepth
+            maib = aiBreadth
+            maid = aiDepth
+            while option > 0:
+                menuItems = ["Play with these settings", "Breadth: {}".format(maib), "Depth: {}".format(maid)]
+                option = menu("Accept Settings", menuItems, 4, screenX, "***** See Help for an explanation of these values")
+                if option == 1:
+                    maib += 1
+                    if maib > 5:
+                        maib = 0
+                if option == 2:
+                    maid += 1
+                    if maid > 8:
+                        maid = 0
+                if option == 0:
+                    aiBreadth = maib
+                    aiDepth = maid
+
+        elif option == 4:
             drawHelp()
-        elif option == 5:
-            return 2
         elif option == 6:
+            return 2
+        elif option == 7:
             return 1
         else:
             option = menu("Quit", [" Absolutely ", " Maybe Not"], 3, screenX, "Are you sure? ")
@@ -382,7 +481,7 @@ def getUserChoice(status, inGame):
             else:
                 continue
 
-        return 0
+    return 0
 
 # sets up the colours for curses, the background colour and clears the screen
 def initScr(win):
@@ -405,17 +504,20 @@ def initScr(win):
 
 # fills in the "advantage" grid and calls initScr
 def init(win):
-    global advantage, ur
+    global advantage, aiBreadth, aiDepth
     advantage = [
-        [8,0,3,2,2,3,0,8],
-        [0,0,2,0,0,2,0,0],
-        [3,2,4,3,3,4,2,3],
-        [2,0,3,0,0,3,0,2],
-        [2,0,3,0,0,3,0,2],
-        [3,2,4,3,3,4,2,3],
-        [0,0,2,0,0,2,0,0],
-        [8,0,3,2,2,3,0,8],
+        [8, 0, 3, 2, 2, 3, 0, 8],
+        [0, 0, 2, 0, 0, 2, 0, 0],
+        [3, 2, 4, 3, 3, 4, 2, 3],
+        [2, 0, 3, 0, 0, 3, 0, 2],
+        [2, 0, 3, 0, 0, 3, 0, 2],
+        [3, 2, 4, 3, 3, 4, 2, 3],
+        [0, 0, 2, 0, 0, 2, 0, 0],
+        [8, 0, 3, 2, 2, 3, 0, 8],
     ]
+    aiBreadth = 0
+    aiDepth = 0
+
     initScr(win)
 
 # called from the curses.wrapper - main game loop
@@ -430,6 +532,7 @@ def main(win):
         board[3][3].contents = board[4][4].contents = WHITE
         board[3][4].contents = board[4][3].contents = BLACK
         gameOver, key, colour, score, status, urc = 0, 0, BLACK, [2, 2], [0, 0], [BLANK]
+        move = Move()
 
         ur = UndoRedo()
         ur.save(board, colour, score)
@@ -441,13 +544,12 @@ def main(win):
             drawScore(score, colour, status)
             drawBoard(board)
 
-            best = [-1, -1, 0]
             if status[ 0 if colour == WHITE else 1]:
-                scoreBoard(board, colour, best)
                 if status[0] == status[1] == 1:
                     key = stdscr.getch()
+                scoreBoard(board, colour, move, 0)
             else:
-                key = getHumanPlay(board, colour, best)
+                key = getHumanPlay(board, colour, move)
 
             if key == INPUT_BACKUP:
                 key = getUserChoice(status, True)
@@ -470,15 +572,15 @@ def main(win):
                 colour = urc[0]
                 continue
 
-            if best[0] != -1:
+            if move.y != -1:
                 gameOver = 0
-                addPiece(best[0], best[1], board, colour)
+                addPiece(move.y, move.x, board, colour)
                 if colour == WHITE:
-                    score[0] += 1 + best[2] - advantage[best[0]][best[1]]
-                    score[1] -= best[2] - advantage[best[0]][best[1]]
+                    score[0] += 1 + move.score
+                    score[1] -= move.score
                 else:
-                    score[1] += 1 + best[2] - advantage[best[0]][best[1]]
-                    score[0] -= best[2] - advantage[best[0]][best[1]]
+                    score[1] += 1 + move.score
+                    score[0] -= move.score
 
                 ur.save(board, swap(colour), score)
 
