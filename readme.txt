@@ -18,7 +18,7 @@ opponent.  The idea is that in the long term, better decisions are made.
 
 The defualt settings for Bredth and Depth are 0.  That's the fastest.
 When I play with Depth 3 and Level 4, for example, it's a pretty reasonable
-experience for balance vs. speed of AI on my i5-6700.
+experience for balance vs. speed of AI on my i7-6700.
 
     V1.0 - 11 Jan 2017 - Initial Release - Windows only.
     V1.1 - 12 Jan 2017 - Mac and Linux support.
