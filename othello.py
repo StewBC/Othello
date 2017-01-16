@@ -6,6 +6,7 @@ Versions:
     V1.2 - 12 Jan 2017 - ESC brings up in-game menu.
     V1.3 - 13 Jan 2017 - Added help and Undo/Redo. Made board look nicer.
     V1.4 - 14 Jan 2017 - Added recursive AI and settings for this AI.
+    V1.4a- 15 Jan 2017 - Cleanup and fixed a very silly AI bug
 """
 
 import curses
@@ -160,6 +161,7 @@ class Tile:
     contents = BLANK
     score = 0
 
+# keeps track of x,y and potential score
 class Move:
     y = x = -1
     score = 0
@@ -203,11 +205,6 @@ def scoreTile(y, x, board, colour):
 # recursive scoring function and wide scoring test
 def scoreBoard(board, colour, move, level):
     moveList = []
-    urc = [BLANK]
-    score = [0, 0]
-    aur = UndoRedo()
-    aur.save(board, colour, score)
-
     for y in range(8):
         for x in range(8):
             board[y][x].score = 0
@@ -229,15 +226,17 @@ def scoreBoard(board, colour, move, level):
             move.__dict__ = moveList[-1].__dict__.copy()
             tiles = move.score - advantage[move.y][move.x]
         else:
+            aur = UndoRedo()
+            score = [0, 0]
+            aur.save(board, colour, score)
+            urc = [BLANK]
             while moveList:
                 amove = moveList.pop()
-                cy, cx = stdscr.getyx()
                 addPiece(amove.y, amove.x, board, colour)
                 colour = swap(colour)
                 omove = Move()
                 scoreBoard(board, colour, omove, level+1)
-                odd = (level % 2 != 0)
-                if (not odd and amove.score - omove.score > best.score) or (odd and amove.score - omove.score < best.score) or not initBest:
+                if amove.score - omove.score > best.score or not initBest:
                     best = copy.copy(amove)
                     tiles = best.score - advantage[best.y][best.x]
                     best.score -= omove.score
@@ -427,7 +426,7 @@ def getUserChoice(status, inGame):
             menuItems.append(" End Match")
             menuItems.append(" Pass")
         option = menu("Main Menu", menuItems, len(menuItems)+1, screenX, 
-            "***** Python Othello V1.3 by Stefan Wessels, Jan. 2017.  ***** I wrote this game "
+            "***** Python Othello V1.4a by Stefan Wessels, Jan. 2017.  ***** I wrote this game "
             "as a learning exercise - I wanted to learn Python and I used Othello as the way to "
             "learn.  Even though the AI is marginal, I think it is a success. ")
 
@@ -564,10 +563,14 @@ def main(win):
                     continue
             elif key == INPUT_UNDO:
                 # both undo & redo runs 2x, as it should, if one player is AI
+                if status[0] != status [1]:
+                    ur.undo(board, urc, score)
                 ur.undo(board, urc, score)
                 colour = urc[0]
                 continue
             elif key == INPUT_REDO:
+                if status[0] != status [1]:
+                    ur.redo(board, urc, score)
                 ur.redo(board, urc, score)
                 colour = urc[0]
                 continue

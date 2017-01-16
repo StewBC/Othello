@@ -16,16 +16,16 @@ counter to the opponents' counter move, etc.  The scores are summed, adding
 tiles taken by the current color and subtracting tiles taken by the
 opponent.  The idea is that in the long term, better decisions are made.
 
-I am not clear that it really makes the game play much better.  I did have
-fun with Breadth set to 5 and Depth set to 3.  Not too slow and at least
-a little bit challanging.  With both set to 0 (the default), the game is
-still quite fun, I think.
+The defualt settings for Bredth and Depth are 0.  That's the fastest.
+When I play with Depth 3 and Level 4, for example, it's a pretty reasonable
+experience for balance vs. speed of AI on my i5-6700.
 
     V1.0 - 11 Jan 2017 - Initial Release - Windows only.
     V1.1 - 12 Jan 2017 - Mac and Linux support.
     V1.2 - 12 Jan 2017 - ESC brings up in-game menu.
     V1.3 - 13 Jan 2017 - Added help and Undo/Redo. Made board look nicer.
     V1.4 - 14 Jan 2017 - Added recursive AI and settings for this AI.
+    V1.4a- 15 Jan 2017 - Cleanup and fixed a very silly AI bug
 
 If anyone reads the code and has comments, please let me know!  As I did
 this to learn, I would love any feedback that helps me improve.
