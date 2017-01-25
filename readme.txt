@@ -26,6 +26,7 @@ experience for balance vs. speed of AI on my i7-6700.
     V1.3 - 13 Jan 2017 - Added help and Undo/Redo. Made board look nicer.
     V1.4 - 14 Jan 2017 - Added recursive AI and settings for this AI.
     V1.4a- 15 Jan 2017 - Cleanup and fixed a very silly AI bug
+    V1.5 - 24 Jan 2017 - Put in new menu system.  Affects only AI Settings
 
 If anyone reads the code and has comments, please let me know!  As I did
 this to learn, I would love any feedback that helps me improve.
